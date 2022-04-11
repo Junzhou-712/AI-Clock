@@ -1,0 +1,8 @@
+__pycache__/
+
+Inference_result/
+tmp/
+checkpoints/
+cocome/
+
+test.py
