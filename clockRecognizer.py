@@ -1,7 +1,7 @@
-from ctypes import pointer
-from curses import echo
-from importlib.resources import path
-from logging.handlers import RotatingFileHandler
+# from ctypes import pointer
+# from curses import echo
+# from importlib.resources import path
+# from logging.handlers import RotatingFileHandler
 from cv2 import imread
 from mmdet.apis import init_detector, inference_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
@@ -9,7 +9,7 @@ import mmcv
 import os
 import numpy as np
 import cv2
-from math import atan, sqrt, pi
+from math import atan, sqrt, pi, sin, cos, degrees, radians
 import json
 
 class ClockRecognizer:
@@ -28,9 +28,11 @@ class ClockRecognizer:
         }
         # 指针直线
         self.line_para = None
-        # 刻度的端点坐标[[x0,y0],[x1,y1],[]]
+        # 指针直线方向
+        self.pointer_direc_k = None
+
+        # 刻度的端点坐标[[x0,y0],[x1,y1],[中点坐标]]
         self.scale_pointer = []
-        self.bbox_pointer = []
         # 表盘圆[圆心x，圆心y，半径]
         self.clock_circle = []
         #表盘度数的角度
@@ -172,7 +174,7 @@ class ClockRecognizer:
 
         # 取指针上的一点作为旋转方向参考
         bbox = bbox_result[0][0]
-        pointer_mask_p = [(bbox[0]+bbox[1])/2, (bbox[2]+bbox[3])/2]
+        pointer_mask_p = [(bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2]
 
         # ----------------------------------------------------------------------
         # 求刻度轮廓寻找角点
@@ -191,17 +193,15 @@ class ClockRecognizer:
         print("corners: ", corner_lis)
         x0, y0, x1, y1 = corner_lis[0][0][0], corner_lis[0][0][1], corner_lis[1][0][0], corner_lis[1][0][1]
         rotate_img, mask = self._rotate(raw_img, mask, [x0, y0], [x1, y1], pointer_mask_p)
-        print(">> Rotate Done.")
 
         bbox = bbox_result[1][0]
         rotate_img, mask = self._perspective_trans(rotate_img, mask)
-        print(">> Presprctive Done.")
         # 保存已经旋转好，透视变换好的图片
         cv2.imwrite(self.tmp_dir + os.sep + "rotate_" + img, rotate_img)
         print('=====================================================')
 
     # 得到指针所在直线和表盘拟合的圆
-    def _get_pointer_line(self, img, save_result_img, show_img):
+    def _get_circle(self, img, save_result_img, show_img):
         print('=====================================================')
         print('>> Start finding pointer line')
         pathname = self.tmp_dir + os.sep + "rotate_" + img
@@ -242,14 +242,12 @@ class ClockRecognizer:
         cnt = 0
         cnt_color = [(255, 0, 255), (0, 255, 255), (255, 0, 255)]
         added = False
-        vis = [False] * len(contour)
+        # vis = [False] * len(contour)
 
         while True:
             vec = contour[index]
             x, y = vec[0], vec[1]
             index = (index + 20) % len(contour)
-            if vis[index] is True:
-                continue
             d1 = self._distance_to_point(x, y, self.scale_pointer[0][0], self.scale_pointer[0][1])
             d2 = self._distance_to_point(x, y, self.scale_pointer[1][0], self.scale_pointer[1][1])
             if d1 <= self.min_point_distance or d2 <= self.min_point_distance:
@@ -258,19 +256,16 @@ class ClockRecognizer:
                     cnt += 1
                 continue
             added = False
-            if cnt == 0:
+            if cnt == 0 or cnt == 2:
+                if cnt == 2 and index > 0:
+                    break
                 c1_lis.append([x, y])
             elif cnt == 1:
                 c2_lis.append([x, y])
-            elif cnt == 2:
-                if index > 0:
-                    break
-                c1_lis.append([x, y])
             else:
                 break
             if save_result_img:
                 rotate_img = cv2.circle(rotate_img, (np.int32(x), np.int32(y)), 10, cnt_color[cnt], 5)
-            vis[index] = True
 
         print("c1_lis: ", len(c1_lis), "c2_lis: ", len(c2_lis))
         A1, B1, R1 = self.calCircleCenter(c1_lis)
@@ -280,15 +275,8 @@ class ClockRecognizer:
 
         mask = segms[0]
         mask = mask.copy().astype(np.uint8)
-        # 寻找指针直线
+        # 寻找指针直线--最小二乘法
         bbox = bbox_result[0][0]
-        self.bbox_pointer = [[bbox[0], bbox[1]], [bbox[2], bbox[3]]]
-        d1 = self._distance_to_point(bbox[0], bbox[1], self.clock_circle[0], self.clock_circle[1])
-        d2 = self._distance_to_point(bbox[2], bbox[3], self.clock_circle[0], self.clock_circle[1])
-        if d1 < d2:
-            end_point = self.bbox_pointer[1]
-        else:
-            end_point = self.bbox_pointer[0]
         x_coord, y_coord = [], []
         for row in range(np.int32(bbox[0]), np.int32(bbox[2])):
             for col in range(np.int32(bbox[1]), np.int32(bbox[3])):
@@ -303,24 +291,36 @@ class ClockRecognizer:
         y_coord = np.array(y_coord)
         para1 = np.dot(np.dot(np.linalg.inv(np.dot(x_coord.T, x_coord)), x_coord.T), y_coord)
 
-        k = (bbox[1] - bbox[3])*1.0 / (bbox[0] - bbox[2])
-        b = bbox[1] - k * bbox[0]
-        para2 = [k, b]
+        same_cnt = 0
+        for x in range(np.int32(bbox[0]), np.int32(bbox[2])):
+            for y in range(np.int32(bbox[1]), np.int32(bbox[3])):
+                if mask[x][y] > 0:
+                    vx = x - self.clock_circle[0]
+                    vy = y - self.clock_circle[1]
+                    if para1[0] >= 0:
+                        if vx >= 0 and vy >= 0:
+                            same_cnt += 1
+                        elif vx <= 0 and vy <= 0:
+                            same_cnt -= 1
+                    elif para1[0] < 0:
+                        if vx >= 0 and vy <= 0:
+                            same_cnt += 1
+                        elif vx <= 0 and vy >= 0:
+                            same_cnt -= 1
 
-        para3 = [para1[0]*0.8+para2[0]*0.2, para1[1]*0.8+para2[1]*0.2, end_point]
-        self.line_para = para3
+        self.line_para = [para1[0], para1[1], same_cnt]
 
         if save_result_img:
             rotate_img = cv2.circle(rotate_img, (np.int32(self.clock_circle[0]), np.int32(self.clock_circle[1])), np.int32(self.clock_circle[2]), (255, 0, 0), 5)
-            rotate_img = cv2.line(rotate_img, (0, np.int32(self._line(para1, 0))), (rotate_img.shape[0], np.int32(self._line(para1, rotate_img.shape[0]))), (0, 255, 0), 10)
-            rotate_img = cv2.line(rotate_img, (0, np.int32(self._line(para2, 0))), (rotate_img.shape[0], np.int32(self._line(para2, rotate_img.shape[0]))), (0, 0, 255), 10)
-            rotate_img = cv2.line(rotate_img, (0, np.int32(self._line(para3, 0))), (rotate_img.shape[0], np.int32(self._line(para3, rotate_img.shape[0]))), (255, 0, 0), 10)
+            rotate_img = cv2.line(rotate_img, (0, np.int32(self._line(self.line_para, 0))), (rotate_img.shape[0], np.int32(self._line(self.line_para, rotate_img.shape[0]))), (255, 0, 0), 10)
             rotate_img = cv2.circle(rotate_img, (np.int32(bbox[0]), np.int32(bbox[1])), 10, (255, 0, 0), 2)
             rotate_img = cv2.circle(rotate_img, (np.int32(bbox[2]), np.int32(bbox[3])), 10, (255, 0, 0), 2)
             cv2.imwrite(self.save_path + os.sep + "img" + os.sep + "marked_" + img, rotate_img)
         print('=====================================================')
 
     def read_degree(self, json_name, pathname):
+        print('=====================================================')
+        print('>> Start Reading Degree.')
         # 以圆心中垂线为0度
         with open(json_name, "r", encoding='utf-8') as f:
             ocr_res = json.load(f)
@@ -333,70 +333,60 @@ class ClockRecognizer:
             except ValueError:
                 continue
             cx = (ocr_res[key]["p1"][0]+ocr_res[key]["p2"][0]+ocr_res[key]["p3"][0]+ocr_res[key]["p4"][0])/4
-            cy = (ocr_res[key]["p1"][1]+ocr_res[key]["p1"][1]+ocr_res[key]["p1"][1]+ocr_res[key]["p1"][1])/4
-            rotate_img = cv2.circle(rotate_img, (np.int32(cx), np.int32(cy)), 10, (255, 0, 0), 5)
+            cy = (ocr_res[key]["p1"][1]+ocr_res[key]["p2"][1]+ocr_res[key]["p3"][1]+ocr_res[key]["p4"][1])/4
             k = (cy-self.clock_circle[1])/(cx-self.clock_circle[0])
-            degree = atan(k)*180/pi
-            if cx >= self.clock_circle[0]:
-                if cy >= self.clock_circle[1]:
-                    pass
-                elif cy < self.clock_circle[1]:
-                    if degree < 0:
-                        pass
-                    else:
-                        degree -= 180
-            else:
-                if cy >= self.clock_circle[1]:
-                    if degree < 0:
-                        degree += 180
-                elif cy < self.clock_circle[1]:
-                    if degree < 180:
-                        degree += 180
-                
-            self.degree_dict[res_num] = (degree + 270) % 360
+            degree = degrees(atan(k))
+            vx = cx - self.clock_circle[0]
+            vy = cy - self.clock_circle[1]
+            ex = cos(radians(degree))
+            ey = sin(radians(degree))
+            # 判断需不需要加180度
+            if vx*ex + vy*ey < 0:
+                degree += 180
+            degree = (degree + 270) % 360
+            if degree < 41 or degree > 319:
+                continue
+            rotate_img = cv2.circle(rotate_img, (np.int32(cx), np.int32(cy)), 10, (255, 0, 0), 5)
+            self.degree_dict[res_num] = degree
 
-        lk, lx, ly = self.line_para[0], self.line_para[2][0], self.line_para[2][1]
-        rotate_img = cv2.circle(rotate_img, (np.int32(lx), np.int32(ly)), 10, (255, 0, 0), 5)
+        lk, lcnt = self.line_para[0], self.line_para[2]
+
         degree = atan(lk)*180/pi
-        if lx >= self.clock_circle[0]:
-            if ly < self.clock_circle[1]:
-                if degree < 0:
-                    pass
-                else:
-                    degree -= 180
-        else:
-            if ly >= self.clock_circle[1]:
-                if degree < 0:
-                    degree += 180
-            elif ly < self.clock_circle[1]:
-                if degree < 180:
-                    degree += 180
+        # 投票输了
+        if lcnt < 0:
+            degree += 180
         degree = (degree + 270) % 360
         print(">> THE POINTER DEGREE: ", degree)
         print(self.degree_dict)
         # 得到一个list[(degree:angle)()]
         sort = sorted(self.degree_dict.items(), key=lambda x: x[1])
-        print(sort, type(sort))
         degree_result = 0
-        for i in range(len(sort)-1):
-            if degree >= sort[i][1]:
-                if degree < sort[i+1][1]:
-                    degree_result = (sort[i+1][0]-sort[i][0])*(degree-sort[i][1])*1.0/(sort[i+1][1]-sort[i][1])+sort[i][0]
-                    break
-            else:
-                if i == 0:
-                    degree_result = (sort[i][0])*(degree-45)*1.0/(sort[i][1]-45)
-                    break
-                else:
-                    print("wtf????")
-        
 
-        print(">>> THE FINAL DEGREE RESULT: ", degree_result)
+        # 补全刻度0--最小二乘法
+        # deg = zero + num * k
+        num_coord = []
+        deg_coord = []
+        if sort[0][0] != 0:
+            for item in sort:
+                num_coord.append(item[0])
+                deg_coord.append(item[1])
+        ones = np.ones(len(num_coord)).reshape(-1, 1)
+        num_coord = np.array(num_coord).reshape(-1, 1)
+        num_coord = np.concatenate((num_coord, ones), axis=1)
+        deg_coord = np.array(deg_coord)
+        zero = np.dot(np.dot(np.linalg.inv(np.dot(num_coord.T, num_coord)), num_coord.T), deg_coord)[1]
+        sort.insert(0, (0, zero))
+        print(sort, type(sort))
+        for i in range(len(sort)-1):
+            if degree < sort[i+1][1]:
+                degree_result = (sort[i+1][0]-sort[i][0])*(degree-sort[i][1])*1.0/(sort[i+1][1]-sort[i][1])+sort[i][0]
+                break
+            else:
+                print(">>[ERROR!] The Degree errors!")
+        print(">>> THE FINAL DEGREE RESULT: ", degree_result if degree_result > 0 else 0)
         rotate_img = cv2.resize(rotate_img, (900, 900))
         cv2.imshow("final", rotate_img)
         cv2.waitKey(0)
-        
-        
 
     def process(self, pathname="", process_num=1, save_result_img=False, show_img=False):
         if os.path.isdir(pathname):
@@ -407,7 +397,7 @@ class ClockRecognizer:
                 if cnt > process_num:
                     break
                 self._get_rotate_img(img, pathname, save_result_img, show_img)
-                self._get_pointer_line(img, save_result_img, show_img)
+                self._get_circle(img, save_result_img, show_img)
         elif os.path.isfile(pathname):
             img = pathname.split('/')[-1]
             _pathname = ""
@@ -421,7 +411,7 @@ class ClockRecognizer:
                 _pathname += p
                 cnt+=1
             self._get_rotate_img(img, _pathname, save_result_img, show_img)
-            self._get_pointer_line(img, save_result_img, show_img)
+            self._get_circle(img, save_result_img, show_img)
         else:
             print("wtf?")
 
