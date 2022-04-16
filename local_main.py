@@ -17,4 +17,4 @@ if __name__ == "__main__":
     save_name = tr.save_path + os.sep + img_name.split('.')[0] + "_ocr_res.json"
     tr.save_res(tr_res, save_name)
     json_name = img_name.split(".")[0] + "_ocr_res.json"
-    cr.read_degree("./ocr_json_file"+os.sep+json_name, "./tmp" + os.sep + img_name)
+    cr.read_degree("./ocr_json_file"+os.sep+json_name, "./tmp" + os.sep + img_name, True)

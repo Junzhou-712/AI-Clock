@@ -5,5 +5,5 @@ tmp/
 checkpoints/
 cocome/
 ocr_json_file/
-
+*.db
 test.py

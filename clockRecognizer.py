@@ -46,8 +46,6 @@ class ClockRecognizer:
             os.makedirs(self.save_path)
         if not os.path.exists(self.save_path + os.sep + "img"):
             os.makedirs(self.save_path + os.sep + "img")
-        if not os.path.exists(self.save_path + os.sep + "bitmap"):
-            os.makedirs(self.save_path + os.sep + "bitmap")
 
     def _line(self, para, x):
         k, b = para[0], para[1]
@@ -380,7 +378,7 @@ class ClockRecognizer:
 
 
 
-    def read_degree(self, json_name, pathname):
+    def read_degree(self, json_name, pathname, show_img):
         print('=====================================================')
         print('>> Start Reading Degree.')
         # 以圆心中垂线为0度
@@ -431,9 +429,11 @@ class ClockRecognizer:
             else:
                 print(">>[ERROR!] The Degree errors!")
         print(">>> THE FINAL DEGREE RESULT: ", degree_result if degree_result > 0 else 0)
-        rotate_img = cv2.resize(rotate_img, (900, 900))
-        cv2.imshow("final", rotate_img)
-        cv2.waitKey(0)
+
+        if show_img:
+            rotate_img = cv2.resize(rotate_img, (900, 900))
+            cv2.imshow("final", rotate_img)
+            cv2.waitKey(0)
 
     def process(self, pathname="", process_num=1, save_result_img=False, show_img=False):
         if os.path.isdir(pathname):
