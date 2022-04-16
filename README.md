@@ -11,11 +11,12 @@
     ```
 
 + 再装pytorch， mmdetection
-    ```
-    conda install pytorch torchvision -c pytorch
+    ```sh
+    # conda install pytorch torchvision -c pytorch
+    python3 -m pip install torch torchvision
     ```
 
-    ```
+    ```sh
     python3 -m pip install openmim==0.1.5 && mim install mmdet
     ```
 

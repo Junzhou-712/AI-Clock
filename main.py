@@ -4,7 +4,7 @@ import os
 
 if __name__ == "__main__":
     cr = ClockRecognizer()
-    img_name = "HD518.jpg"
+    img_name = "HD213.jpg"
     # 检查是否有rotate_
     #if not os.path.exists('./tmp' + os.sep + "rotate_" + img_name):
     cr.process(pathname="./cocome" + os.sep + img_name, save_result_img=True, show_img=True)

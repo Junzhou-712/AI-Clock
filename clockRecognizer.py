@@ -318,6 +318,68 @@ class ClockRecognizer:
             cv2.imwrite(self.save_path + os.sep + "img" + os.sep + "marked_" + img, rotate_img)
         print('=====================================================')
 
+    def post_process(self, sort_lis):
+        """
+        1. 筛掉角度过小或过大
+        2. 圆心距离过小
+        3.
+        """
+        temp_lis1 = sort_lis
+        temp_lis2 = []
+        min_scale = 0x3fffffff
+        min_scale_degree = 0
+
+        for item in temp_lis1:
+            scale, (degree, center_dis) = item
+            if degree < 45 or degree > 315:
+                continue
+            if center_dis < self.clock_circle[2]*0.3:
+                continue
+            if scale < min_scale:
+                min_scale = scale
+                min_scale_degree = degree
+            temp_lis2.append((scale, (degree, center_dis)))
+        temp_lis1 = []
+        min_scale_divide_degree = 0x3fffffff
+        for item in temp_lis2:
+            scale, (degree, center_dis) = item
+            if degree < min_scale_degree:
+                while scale > min_scale:
+                    scale /= 10
+                temp_lis1.append((scale, (degree, center_dis)))
+                continue
+
+            min_scale_divide_degree = min(min_scale_divide_degree, scale*1.0/(degree-35))
+            if degree > min_scale_degree:
+                while scale*1.0/(degree-35) > 2*min_scale_divide_degree:
+                    print(scale, min_scale_divide_degree)
+                    scale /= 10
+                    temp_lis1.append((scale, (degree, center_dis)))
+                    continue
+            
+            temp_lis1.append((scale, (degree, center_dis)))
+
+        res_lis = temp_lis1
+        # 补全刻度0--最小二乘法
+        # deg = zero + num * k
+        num_coord = []
+        deg_coord = []
+        if res_lis[0][0] != 0:
+            for item in res_lis:
+                num_coord.append(item[0])
+                deg_coord.append(item[1])
+        ones = np.ones(len(num_coord)).reshape(-1, 1)
+        num_coord = np.array(num_coord).reshape(-1, 1)
+        num_coord = np.concatenate((num_coord, ones), axis=1)
+        deg_coord = np.array(deg_coord)
+        zero = np.dot(np.dot(np.linalg.inv(np.dot(num_coord.T, num_coord)), num_coord.T), deg_coord)[1][0]
+        res_lis.insert(0, (0, (zero, 0)))
+        print(res_lis, type(res_lis))
+        return res_lis
+
+
+
+
     def read_degree(self, json_name, pathname):
         print('=====================================================')
         print('>> Start Reading Degree.')
@@ -344,10 +406,9 @@ class ClockRecognizer:
             if vx*ex + vy*ey < 0:
                 degree += 180
             degree = (degree + 270) % 360
-            if degree < 41 or degree > 319:
-                continue
             rotate_img = cv2.circle(rotate_img, (np.int32(cx), np.int32(cy)), 10, (255, 0, 0), 5)
-            self.degree_dict[res_num] = degree
+            d_center = sqrt(vx*vx+vy*vy)
+            self.degree_dict[res_num] = (degree, d_center)
 
         lk, lcnt = self.line_para[0], self.line_para[2]
 
@@ -360,26 +421,12 @@ class ClockRecognizer:
         print(self.degree_dict)
         # 得到一个list[(degree:angle)()]
         sort = sorted(self.degree_dict.items(), key=lambda x: x[1])
+        sort = self.post_process(sort)
         degree_result = 0
 
-        # 补全刻度0--最小二乘法
-        # deg = zero + num * k
-        num_coord = []
-        deg_coord = []
-        if sort[0][0] != 0:
-            for item in sort:
-                num_coord.append(item[0])
-                deg_coord.append(item[1])
-        ones = np.ones(len(num_coord)).reshape(-1, 1)
-        num_coord = np.array(num_coord).reshape(-1, 1)
-        num_coord = np.concatenate((num_coord, ones), axis=1)
-        deg_coord = np.array(deg_coord)
-        zero = np.dot(np.dot(np.linalg.inv(np.dot(num_coord.T, num_coord)), num_coord.T), deg_coord)[1]
-        sort.insert(0, (0, zero))
-        print(sort, type(sort))
         for i in range(len(sort)-1):
-            if degree < sort[i+1][1]:
-                degree_result = (sort[i+1][0]-sort[i][0])*(degree-sort[i][1])*1.0/(sort[i+1][1]-sort[i][1])+sort[i][0]
+            if degree < sort[i+1][1][0]:
+                degree_result = (sort[i+1][0]-sort[i][0])*(degree-sort[i][1][0])*1.0/(sort[i+1][1][0]-sort[i][1][0])+sort[i][0]
                 break
             else:
                 print(">>[ERROR!] The Degree errors!")
