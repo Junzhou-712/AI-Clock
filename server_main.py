@@ -13,7 +13,8 @@ if __name__ == "__main__":
 
     if not os.path.exists(img_done_dir):
         os.makedirs(img_done_dir)
-
+    if not os.path.exists("cocome"):
+        os.makedirs("cocome")
     cr = ClockRecognizer()
     tr = TextRecognizer()
 
@@ -30,6 +31,7 @@ if __name__ == "__main__":
 
         img_list = os.listdir()
         for img_name in img_list:
+            shutil.move(img_dir+os.sep+img_name, "./cocome")
             origin_img_name = img_name
             cr.process(pathname="./cocome" + os.sep + img_name, save_result_img=True, show_img=True)
             img_name = "rotate_" + img_name
@@ -49,7 +51,7 @@ if __name__ == "__main__":
                 result_bt = base64.b64encode(f.read())
             curs.execute("INSERT INTO CLOCK VALUES(?)",(id, result_degree, raw_bt, rotate_bt, marked_bt, result_bt))
             conn.commit()
-            shutil.move(img_dir+os.sep+img_name, img_done_dir)
+            
             print("-------------------------------------------------------")
             print(img_dir+os.sep+img_name, "done. ")
             print(">> move ", img_dir+os.sep+img_name, " to ", img_done_dir)

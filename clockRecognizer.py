@@ -160,6 +160,12 @@ class ClockRecognizer:
         cv2.imwrite(self.tmp_dir + os.sep + img, gray_img)
 
         result = inference_detector(self.model, self.tmp_dir + os.sep + img)
+        if save_result_img:  # 不加out_file参数可以显示图片
+            self.model.show_result(
+                pathname + os.sep + img,
+                result,
+                out_file=self.save_path + os.sep + 'img' + os.sep + 'result_0' + img
+            )
         # result = [bbox_result, segm_result]; result[0]是目标box的二点坐标和置信度, 有两个，指针和刻度
         bbox_result, segm_result = result
         segms = mmcv.concat_list(segm_result)  # segms转化成list
